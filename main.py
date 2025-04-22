@@ -1,11 +1,11 @@
 import boto3
 from datetime import datetime, timezone, timedelta
-from incidents_utils import log_event_to_dynamodb, send_email_alert
-from classify_threat_with_comprehend import analyze_sentiment  
+from incident_utils import log_event_to_dynamodb, send_email_alert
+from classify_threat_with_comprehend import analyze_sentiment
 from lambda_block_ip import block_ip_in_waf
 
 guardduty_client = boto3.client('guardduty')
-
+iam_client = boto3.client('iam')
 
 def get_detector_id():
     detectors = guardduty_client.list_detectors()
@@ -14,6 +14,37 @@ def get_detector_id():
         return None
     return detectors['DetectorIds'][0]
 
+# removes console login and disables all access keys
+def disable_iam_user(username):
+    print(f"Disabling IAM user: {username}")
+    try:
+        iam_client.delete_login_profile(UserName=username)
+        print(f"Console access disabled for {username}")
+    except iam_client.exceptions.NoSuchEntityException:
+        print(f"No console login found for {username}")
+
+    try:
+        keys = iam_client.list_access_keys(UserName=username)['AccessKeyMetadata']
+        for key in keys:
+            iam_client.update_access_key(
+                UserName=username,
+                AccessKeyId=key['AccessKeyId'],
+                Status='Inactive'
+            )
+            print(f"Access key {key['AccessKeyId']} disabled")
+    except Exception as e:
+        print(f"Failed to disable access keys: {e}")
+
+
+
+def extract_ip(finding):
+    try:
+        return finding['Service']['Action']['RemoteIpDetails']['IpAddressV4']
+    except KeyError:
+        try:
+            return finding['Resource']['InstanceDetails']['NetworkInterfaces'][0]['PublicIp']
+        except (KeyError, IndexError):
+            return None
 
 def process_threats(detector_id):
     time_threshold = int((datetime.now(timezone.utc) - timedelta(hours=24)).timestamp())
@@ -37,57 +68,27 @@ def process_threats(detector_id):
         FindingIds=finding_ids
     )['Findings']
 
-    # Threat type mapping
-    type_mapping = {
-        "UnauthorizedAccess": "Unauthorized Access",
-        "Recon": "Reconnaissance Activity",
-        "Trojan": "Malware Communication",
-        "Backdoor": "Remote Access Tool",
-        "Persistence": "Persistence Mechanism",
-        "PrivilegeEscalation": "Privilege Escalation",
-        "CredentialAccess": "Credential Access Attempt",
-        "Discovery": "Resource Discovery",
-        "Exfiltration": "Data Exfiltration",
-        "CommandAndControl": "C2 Communication",
-        "Impact": "System Impact",
-    }
+    for f in findings:
+        event_type = f['Type']
+        severity = f['Severity']
+        description = f['Description']
+        ip_address = extract_ip(f)
+        username = f.get('Resource', {}).get('AccessKeyDetails', {}).get('UserName')
 
-    for finding in findings:
-        finding_id = finding["Id"]
-        finding_type_raw = finding["Type"]
-        threat_category = type_mapping.get(finding_type_raw.split(":")[0], "Unknown Threat")
-        description = finding["Description"]
+        print(f"\nThreat Detected")
+        print(f"Type: {event_type}\nSeverity: {severity}\nDescription: {description}")
+
         sentiment = analyze_sentiment(description)
-        ip_address = extract_ip(finding)
-        severity = finding.get("Severity", 0)
-
-        log_event_to_dynamodb(finding_type_raw, severity, description)
-
-        send_email_alert(finding_type_raw, severity, description)
-
-
-        print(f"\nFinding ID: {finding_id}")
-        print(f"Description: {description}")
         print(f"Sentiment: {sentiment}")
-        print(f"Threat Type: {threat_category}")
-        print(f"Severity: {severity}")
-        print(f"IP Blocked: {ip_address if ip_address else 'N/A'}")
 
-        if severity >= 5.0 and sentiment in ['NEGATIVE', 'MIXED']:
-            if ip_address:
-                block_ip_in_waf(ip_address)
-            else:
-                print("No IP address found to block.")
+        log_event_to_dynamodb(event_type, severity, description)
+        send_email_alert(event_type, severity, description)
 
-def extract_ip(finding):
-    try:
-        return finding['Service']['Action']['RemoteIpDetails']['IpAddressV4']
-    except KeyError:
-        try:
-            return finding['Resource']['InstanceDetails']['NetworkInterfaces'][0]['PublicIp']
-        except (KeyError, IndexError):
-            return None
+        if severity >= 5.0 and sentiment in ['NEGATIVE', 'MIXED'] and ip_address:
+            block_ip_in_waf(ip_address)
 
+        if event_type.startswith('IAMUser/') and severity >= 7.0 and username:
+            disable_iam_user(username)
 
 if __name__ == "__main__":
     detector_id = get_detector_id()
