@@ -21,7 +21,7 @@ This project is a **cloud-native, serverless security automation system** built 
 ### 🔹 1. Enable GuardDuty
 
 - Go to [GuardDuty Console](https://console.aws.amazon.com/guardduty)
-- Select your region (e.g., `us-west-1`)
+- Select your region (e.g., `eu-west-1`)
 - Click **"Enable GuardDuty"**
 
 ---
