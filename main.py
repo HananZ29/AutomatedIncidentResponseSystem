@@ -37,29 +37,47 @@ def process_threats(detector_id):
         FindingIds=finding_ids
     )['Findings']
 
-    for f in findings:
-        event_type = f['Type']
-        severity = f['Severity']
-        description = f['Description']
-        ip_address = extract_ip(f)
+    # Threat type mapping
+    type_mapping = {
+        "UnauthorizedAccess": "Unauthorized Access",
+        "Recon": "Reconnaissance Activity",
+        "Trojan": "Malware Communication",
+        "Backdoor": "Remote Access Tool",
+        "Persistence": "Persistence Mechanism",
+        "PrivilegeEscalation": "Privilege Escalation",
+        "CredentialAccess": "Credential Access Attempt",
+        "Discovery": "Resource Discovery",
+        "Exfiltration": "Data Exfiltration",
+        "CommandAndControl": "C2 Communication",
+        "Impact": "System Impact",
+    }
 
-        print(f"\nThreat Detected")
-        print(f"Type: {event_type}\nSeverity: {severity}\nDescription: {description}")
-
-        # Step 1: Analyze text with Comprehend
+    for finding in findings:
+        finding_id = finding["Id"]
+        finding_type_raw = finding["Type"]
+        threat_category = type_mapping.get(finding_type_raw.split(":")[0], "Unknown Threat")
+        description = finding["Description"]
         sentiment = analyze_sentiment(description)
+        ip_address = extract_ip(finding)
+        severity = finding.get("Severity", 0)
+
+        log_event_to_dynamodb(finding_type_raw, severity, description)
+
+        send_email_alert(finding_type_raw, severity, description)
+
+
+        print(f"\nFinding ID: {finding_id}")
+        print(f"Description: {description}")
         print(f"Sentiment: {sentiment}")
-
-        log_event_to_dynamodb(event_type, severity, description)
-
-        send_email_alert(event_type, severity, description)
+        print(f"Threat Type: {threat_category}")
+        print(f"Severity: {severity}")
+        print(f"IP Blocked: {ip_address if ip_address else 'N/A'}")
 
         if severity >= 5.0 and sentiment in ['NEGATIVE', 'MIXED']:
             if ip_address:
                 block_ip_in_waf(ip_address)
             else:
                 print("No IP address found to block.")
-
 
 def extract_ip(finding):
     try:
