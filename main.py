@@ -1,6 +1,6 @@
 import boto3
 from datetime import datetime, timezone, timedelta
-from incident_utils import log_event_to_dynamodb, send_email_alert
+from incidents_utils import log_event_to_dynamodb, send_email_alert
 from classify_threat_with_comprehend import analyze_sentiment
 from lambda_block_ip import block_ip_in_waf
 
