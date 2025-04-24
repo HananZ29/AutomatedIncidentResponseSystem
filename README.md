@@ -116,6 +116,42 @@ Attach these policies:
 7. Click **Create Rule**
 
 ---
+### 🔸 Set Up Logging & Alert System (`incident_utils.py`)
+- 🔹 Logging security events to **Amazon DynamoDB**
+- 🔹 Sending real-time **email alerts** via **Amazon SNS**
+
+---
+
+#### 🔹 Step 1: Create a DynamoDB Table
+
+1. Go to **DynamoDB → Create table**
+2. Set the following:
+   - **Table name**: `SecurityEvents`
+   - **Partition key**: `eventId` (Type: `String`)
+3. Leave all other settings as default
+4. Click **Create table**
+
+---
+
+#### 🔹 Step 2: Create an SNS Topic
+
+1. Go to **SNS → Create topic**
+2. Set the following:
+   - **Type**: `Standard`
+   - **Name**: `SecurityAlerts`
+3. Click **Create topic**
+4. Copy the **Topic ARN** (you’ll need it in `incident_utils.py`)
+
+---
+
+#### 🔹 Step 3: Subscribe to the SNS Topic
+
+1. Go to **SNS → Your Topic → Create subscription**
+2. Set the following:
+   - **Protocol**: `Email`
+   - **Endpoint**: your email address
+
+---
 
 ### 🔸 Analyze Logs with AWS Comprehend
 
