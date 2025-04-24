@@ -7,7 +7,7 @@ dynamodb = boto3.resource('dynamodb')
 sns = boto3.client('sns')
 
 table = dynamodb.Table('SecurityEvents')
-SNS_TOPIC_ARN = 'arn:aws:sns:eu-west-1:054037129949:SecurityAlerts'
+SNS_TOPIC_ARN = 'arn:aws:sns:eu-west-1:288761764316:SecurityAlerts'
 
 def log_event_to_dynamodb(event_type, severity, description):
     try:

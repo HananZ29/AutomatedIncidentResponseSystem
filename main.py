@@ -1,11 +1,25 @@
+
 import boto3
+import base64
 from datetime import datetime, timezone, timedelta
-from incident_utils import log_event_to_dynamodb, send_email_alert
+from incidents_utils import log_event_to_dynamodb, send_email_alert
 from classify_threat_with_comprehend import analyze_sentiment
 from lambda_block_ip import block_ip_in_waf
 
 guardduty_client = boto3.client('guardduty')
 iam_client = boto3.client('iam')
+kms_client = boto3.client('kms')
+
+# 🔐 Replace this with your actual KMS key ARN
+KMS_KEY_ID = 'arn:aws:kms:eu-west-1:288761764316:key/9be84ef2-64c2-45b8-9dce-14a178f88802'
+
+# Encrypt description text using AWS KMS
+def encrypt_description(description):
+    encrypted_blob = kms_client.encrypt(
+        KeyId=KMS_KEY_ID,
+        Plaintext=description.encode('utf-8')
+    )['CiphertextBlob']
+    return base64.b64encode(encrypted_blob).decode('utf-8')
 
 def get_detector_id():
     detectors = guardduty_client.list_detectors()
@@ -14,7 +28,7 @@ def get_detector_id():
         return None
     return detectors['DetectorIds'][0]
 
-# removes console login and disables all access keys
+# Removes console login and disables all access keys
 def disable_iam_user(username):
     print(f"Disabling IAM user: {username}")
     try:
@@ -34,8 +48,6 @@ def disable_iam_user(username):
             print(f"Access key {key['AccessKeyId']} disabled")
     except Exception as e:
         print(f"Failed to disable access keys: {e}")
-
-
 
 def extract_ip(finding):
     try:
@@ -81,8 +93,9 @@ def process_threats(detector_id):
         sentiment = analyze_sentiment(description)
         print(f"Sentiment: {sentiment}")
 
-        log_event_to_dynamodb(event_type, severity, description)
-        send_email_alert(event_type, severity, description)
+        encrypted_desc = encrypt_description(description)
+        log_event_to_dynamodb(event_type, severity, encrypted_desc)
+        send_email_alert(event_type, severity, description)  # Keep alert human-readable
 
         if severity >= 5.0 and sentiment in ['NEGATIVE', 'MIXED'] and ip_address:
             block_ip_in_waf(ip_address)
